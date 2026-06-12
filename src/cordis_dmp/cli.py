@@ -4,6 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from . import corpus as cp
 from . import download as dl
 from . import metadata as md
 
@@ -23,12 +24,22 @@ def main(argv=None) -> None:
     sub.add_parser("metadata", help="download CORDIS projectDeliverables metadata dumps")
     sub.add_parser("filter", help="extract DMP deliverables into data/dmp_deliverables.csv")
 
+    p_enrich = sub.add_parser("enrich", help="join project metadata: domains, coordinator, budget -> data/corpus.csv")
+    p_enrich.add_argument("--refresh", action="store_true", help="re-download the project dumps even if cached")
+
     p_dl = sub.add_parser("download", help="download the DMP documents (PDFs)")
+    p_ex = sub.add_parser("extract", help="extract section-structured text from PDFs -> data/text/*.json")
     p_all = sub.add_parser("all", help="metadata + filter + download in one go")
+    for p in (p_dl, p_ex, p_all):
+        p.add_argument("--limit", type=int, default=None, help="stop after N documents (for testing)")
     for p in (p_dl, p_all):
         p.add_argument("--workers", type=int, default=4, help="parallel downloads (default: 4)")
         p.add_argument("--delay", type=float, default=0.5, help="per-worker delay between downloads in seconds")
-        p.add_argument("--limit", type=int, default=None, help="stop after N documents (for testing)")
+    for p in (p_dl, p_ex):
+        p.add_argument("--domains", type=lambda s: s.split(","), default=None, metavar="DOM[,DOM]",
+                       help="restrict to corpus domains, e.g. health,agriculture,climate (needs `enrich` first)")
+        p.add_argument("--latest-only", action="store_true",
+                       help="only the latest DMP version per project (needs `enrich` first)")
 
     args = parser.parse_args(argv)
     if args.programmes:
@@ -41,8 +52,15 @@ def main(argv=None) -> None:
         md.fetch_metadata(args.data_dir, args.programmes)
     if args.command in ("filter", "all"):
         md.filter_dmps(args.data_dir, args.programmes)
+    if args.command == "enrich":
+        cp.build_corpus(args.data_dir, args.programmes, refresh=args.refresh)
     if args.command in ("download", "all"):
-        dl.download_all(args.data_dir, workers=args.workers, delay=args.delay, limit=args.limit)
+        dl.download_all(args.data_dir, workers=args.workers, delay=args.delay, limit=args.limit,
+                        domains=getattr(args, "domains", None),
+                        latest_only=getattr(args, "latest_only", False))
+    if args.command == "extract":
+        from . import extract as ex
+        ex.extract_all(args.data_dir, domains=args.domains, latest_only=args.latest_only, limit=args.limit)
 
 
 if __name__ == "__main__":

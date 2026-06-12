@@ -37,7 +37,13 @@ cordis-dmp all
 # or step by step
 cordis-dmp metadata                  # fetch CORDIS metadata dumps into data/metadata/
 cordis-dmp filter                    # write data/dmp_deliverables.csv
+cordis-dmp enrich                    # join project metadata -> data/corpus.csv
 cordis-dmp download --workers 4      # download PDFs into data/pdfs/
+cordis-dmp extract                   # PDFs -> section-structured JSON in data/text/
+
+# corpus for a domain study: latest DMP per project, three domains only
+cordis-dmp --programmes horizon download --domains health,agriculture,climate --latest-only
+cordis-dmp --programmes horizon extract  --domains health,agriculture,climate --latest-only
 
 # smoke test with 20 documents, Horizon Europe only
 cordis-dmp --programmes horizon all --limit 20   # or --programmes h2020,horizon
@@ -55,13 +61,36 @@ skipped).
 data/
 ├── metadata/
 │   ├── h2020/projectDeliverables.csv
-│   └── horizon/projectDeliverables.csv
+│   ├── horizon/projectDeliverables.csv
+│   └── horizon/projects/          # project.csv, organization.csv, euroSciVoc.csv, ...
 ├── dmp_deliverables.csv      # programme, id, title, type, projectID, acronym, url, date
+├── corpus.csv                # enriched: domains, coordinator, budget, version_rank, is_latest
 ├── manifest.jsonl            # one record per attempted download
-└── pdfs/
-    ├── h2020/634013_37_DELIV.pdf
-    └── horizon/...
+├── extract_log.jsonl         # one record per extracted PDF
+├── pdfs/
+│   ├── h2020/634013_37_DELIV.pdf
+│   └── horizon/...
+└── text/
+    └── 101210495_1_DELIVHORIZON.json   # {sections: [{heading, page, text}], needs_ocr, ...}
 ```
+
+## Corpus enrichment (`cordis-dmp enrich`)
+
+Joins each DMP deliverable with the CORDIS project dumps and adds:
+
+- **Domain labels** from two independent signals, kept separate so analyses
+  can require agreement: `domains_esv` (euroSciVoc taxonomy) and
+  `domains_cluster` (HE funding cluster via topic/legal basis:
+  `HORIZON-HLTH`/`HORIZON.2.1` → health, `HORIZON-CL5`/`2.5` → climate,
+  `HORIZON-CL6`/`2.6` → agriculture). Note CL5 is "Climate, Energy and
+  Mobility" and CL6 is "Food, Bioeconomy, Agriculture..." — broader than the
+  plain domain names. `climate_policy_pct` carries the EU climate-expenditure
+  marker (0/40/100).
+- **Covariates**: budget (`ecMaxContribution`, `totalCost`), dates, funding
+  scheme, coordinator (name, country, activity type), consortium size.
+- **Version handling**: `version_rank` parsed from the title
+  (initial < interim < updated/v2 < final) and `is_latest` marking one DMP
+  per project.
 
 ## Notes
 

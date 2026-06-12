@@ -69,13 +69,23 @@ def download_all(
     delay: float = 0.5,
     limit: int | None = None,
     retries: int = 3,
+    domains=None,
+    latest_only: bool = False,
 ) -> None:
     """Download every document listed in data/dmp_deliverables.csv.
 
-    Files land in data/pdfs/<programme>/<deliverable id>.<ext>; progress is
-    journalled in data/manifest.jsonl so reruns skip completed entries.
+    With `domains`/`latest_only`, the selection is narrowed via
+    data/corpus.csv (built by `cordis-dmp enrich`). Files land in
+    data/pdfs/<programme>/<deliverable id>.<ext>; progress is journalled in
+    data/manifest.jsonl so reruns skip completed entries.
     """
     csv.field_size_limit(10**9)
+    if domains or latest_only:
+        from .corpus import load_corpus_selection
+        keep = {r["id"] for r in load_corpus_selection(data_dir, domains=domains, latest_only=latest_only)}
+        log.info("Corpus selection: %d deliverables match domains=%s latest_only=%s", len(keep), domains, latest_only)
+    else:
+        keep = None
     index_path = data_dir / "dmp_deliverables.csv"
     if not index_path.exists():
         raise FileNotFoundError(f"{index_path} missing — run `cordis-dmp filter` first")
@@ -90,7 +100,8 @@ def download_all(
                     done.add(rec["id"])
 
     with open(index_path, newline="", encoding="utf-8") as f:
-        rows = [r for r in csv.DictReader(f) if r["id"] not in done]
+        rows = [r for r in csv.DictReader(f)
+                if r["id"] not in done and (keep is None or r["id"] in keep)]
     if limit:
         rows = rows[:limit]
     log.info("%d documents to download (%d already done)", len(rows), len(done))
