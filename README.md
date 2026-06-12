@@ -1,59 +1,102 @@
 # cordis-dmp-analysis
 
-Download and analyse **Data Management Plans (DMPs)** published as project
-deliverables in the EU [CORDIS](https://cordis.europa.eu/) database, covering
-**Horizon 2020** and **Horizon Europe**.
+Harvesting and analysing **Data Management Plans (DMPs)** published as open
+project deliverables in the EU [CORDIS](https://cordis.europa.eu/) database
+(Horizon 2020 + Horizon Europe), as the corpus for a study of **responsible
+data management** based on the **TAPS responsibility matrix** (Transparency,
+Accountability, Privacy & Confidentiality, Social Values × Actors, Objects,
+Processes, Impacts).
 
-## How it works
+The study targets EU-funded projects in **health, agriculture and climate**
+and asks: how well do DMPs adhere to the recommended templates (RQ1), how
+comprehensively do they cover the TAPS-RM dimensions (RQ2), how do
+project-specific factors influence this (RQ3), and does TAPS-rated quality
+relate to stated open-science/FAIR commitment (RQ4)?
 
-1. **Metadata** — CORDIS publishes monthly bulk dumps of project deliverables
-   metadata per framework programme:
-   - H2020: `cordis-h2020projectDeliverables-csv.zip` (~19 MB, ~194k deliverables)
-   - Horizon Europe: `cordis-HORIZONprojectDeliverables-csv.zip` (~5 MB, ~49k deliverables)
-2. **Filter** — deliverables whose title mentions a *Data Management Plan*
-   (or bare *DMP*) are extracted to `data/dmp_deliverables.csv`
-   (~12k documents across ~10.4k projects, as of mid-2026).
-3. **Download** — each deliverable `url` points at the EC participant portal
-   (`downloadPublic?documentIds=...&appId=PPGMS`), which serves an
-   interstitial HTML page that sets a session cookie and redirects via
-   `window.location` to a one-time tokenised URL. The downloader replays this
-   two-step flow per document and stores the PDFs under
-   `data/pdfs/<programme>/<deliverable_id>.pdf`.
+## What is implemented
 
-Average DMP is ~1 MB, so the full corpus is roughly **12–15 GB**.
+A five-stage pipeline behind one CLI (`cordis-dmp`), all stages tested
+against the live CORDIS/EC services:
+
+| Stage | Command | Output | Status |
+|---|---|---|---|
+| 1. Metadata harvest | `cordis-dmp metadata` | `data/metadata/*/projectDeliverables.csv` | done — H2020 (~194k deliverables) + Horizon Europe (~49k) |
+| 2. DMP filtering | `cordis-dmp filter` | `data/dmp_deliverables.csv` | done — ~12k DMPs in ~10.4k projects, matched by title ("Data Management Plan" / bare "DMP") |
+| 3. Corpus enrichment | `cordis-dmp enrich` | `data/corpus.csv` | done — domain labels, covariates, version handling (details below) |
+| 4. Document download | `cordis-dmp download` | `data/pdfs/<programme>/*.pdf` | done — resumable, parallel, rate-limited |
+| 5. Text extraction | `cordis-dmp extract` | `data/text/*.json` | done — section-structured text per DMP |
+
+### Stage details and design decisions
+
+**Download mechanics (stage 4).** The CORDIS deliverable `url` points at the
+EC participant portal (`downloadPublic?documentIds=...&appId=PPGMS`), which
+does *not* serve the file directly: it returns an interstitial HTML page that
+sets a session cookie and redirects via `window.location` to a one-time
+tokenised URL. The downloader replays this two-step flow per document.
+Progress is journalled in `data/manifest.jsonl`, so reruns skip completed
+files. Average DMP is ~1 MB; the full corpus is ~12–15 GB, the three-domain
+Horizon Europe corpus ~3 GB.
+
+**Domain labelling (stage 3).** Two independent signals, kept in separate
+columns so analyses can require agreement:
+
+- `domains_esv` — euroSciVoc taxonomy paths (`medical and health sciences`,
+  `agricultural sciences`, paths containing `climat`);
+- `domains_cluster` — Horizon Europe funding cluster via topic prefix and
+  legal basis (`HORIZON-HLTH`/`HORIZON.2.1` → health, `HORIZON-CL5`/`2.5` →
+  climate, `HORIZON-CL6`/`2.6` → agriculture). Caveat: CL5 is "Climate,
+  Energy and Mobility", CL6 is "Food, Bioeconomy, Natural Resources,
+  Agriculture and Environment" — both broader than the plain domain name.
+- `climate_policy_pct` — the EU climate-expenditure marker (0/40/100).
+
+Horizon Europe counts (June 2026 dump): **health 1,538 / agriculture 882 /
+climate 744** DMP deliverables (union of both signals).
+
+**Covariates for RQ3 (stage 3).** Per project: budget (`ecMaxContribution`,
+`totalCost`), start/end dates, funding scheme, coordinator (name, country,
+activity type HES/REC/PRC/PUB, organisation id), consortium size and
+country count.
+
+**DMP version handling (stage 3).** Projects publish several DMP versions
+(initial/updated/final, v1/v2/...). `version_rank` is parsed from the
+deliverable title (initial < interim < updated/v2 < final) and `is_latest`
+marks one DMP per project (rank, then `contentUpdateDate`), so analyses can
+use the latest version cross-sectionally and keep earlier versions for
+within-project evolution.
+
+**Text extraction (stage 5).** PyMuPDF-based: heading detection from font
+size, boldness and numbering patterns (table-of-contents dot-leader lines
+filtered), producing a section tree per document
+(`{sections: [{heading, page, text}]}`). Scanned/image-only PDFs are flagged
+`needs_ocr` instead of being silently dropped. Inspection of extracted DMPs
+confirmed the two adherence styles the analysis must handle: some documents
+reproduce the official HE template questions verbatim as headings ("Will
+data be deposited in a trusted repository?"), others restructure the content
+freely — so template matching downstream must be semantic, not string-based.
 
 ## Install
 
 ```bash
-pip install -e .
+python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
 ## Usage
 
 ```bash
-# everything: metadata → filter → download
-cordis-dmp all
+# everything for a quick start: metadata -> filter -> download
+cordis-dmp all --limit 20            # smoke test with 20 documents
 
-# or step by step
-cordis-dmp metadata                  # fetch CORDIS metadata dumps into data/metadata/
-cordis-dmp filter                    # write data/dmp_deliverables.csv
-cordis-dmp enrich                    # join project metadata -> data/corpus.csv
-cordis-dmp download --workers 4      # download PDFs into data/pdfs/
-cordis-dmp extract                   # PDFs -> section-structured JSON in data/text/
-
-# corpus for a domain study: latest DMP per project, three domains only
+# the full study corpus, step by step
+cordis-dmp --programmes horizon metadata
+cordis-dmp --programmes horizon filter
+cordis-dmp --programmes horizon enrich
 cordis-dmp --programmes horizon download --domains health,agriculture,climate --latest-only
 cordis-dmp --programmes horizon extract  --domains health,agriculture,climate --latest-only
-
-# smoke test with 20 documents, Horizon Europe only
-cordis-dmp --programmes horizon all --limit 20   # or --programmes h2020,horizon
 ```
 
-Downloads are **resumable**: progress is journalled in `data/manifest.jsonl`
-and completed documents are skipped on rerun. Failures are recorded with the
-error message and can be retried by simply rerunning `cordis-dmp download`
-after removing their `error` lines (or leaving them — only `ok` entries are
-skipped).
+Global flags: `--data-dir` (default `./data`), `--programmes h2020,horizon`.
+Download flags: `--workers` (default 4), `--delay` (default 0.5 s), `--limit`.
+Downloads and extraction are resumable; rerunning skips completed items.
 
 ## Output layout
 
@@ -64,39 +107,35 @@ data/
 │   ├── horizon/projectDeliverables.csv
 │   └── horizon/projects/          # project.csv, organization.csv, euroSciVoc.csv, ...
 ├── dmp_deliverables.csv      # programme, id, title, type, projectID, acronym, url, date
-├── corpus.csv                # enriched: domains, coordinator, budget, version_rank, is_latest
+├── corpus.csv                # + domains, coordinator, budget, version_rank, is_latest
 ├── manifest.jsonl            # one record per attempted download
 ├── extract_log.jsonl         # one record per extracted PDF
 ├── pdfs/
-│   ├── h2020/634013_37_DELIV.pdf
-│   └── horizon/...
+│   └── horizon/101210495_1_DELIVHORIZON.pdf
 └── text/
     └── 101210495_1_DELIVHORIZON.json   # {sections: [{heading, page, text}], needs_ocr, ...}
 ```
 
-## Corpus enrichment (`cordis-dmp enrich`)
+## Next steps (analysis stages, not yet implemented)
 
-Joins each DMP deliverable with the CORDIS project dumps and adds:
-
-- **Domain labels** from two independent signals, kept separate so analyses
-  can require agreement: `domains_esv` (euroSciVoc taxonomy) and
-  `domains_cluster` (HE funding cluster via topic/legal basis:
-  `HORIZON-HLTH`/`HORIZON.2.1` → health, `HORIZON-CL5`/`2.5` → climate,
-  `HORIZON-CL6`/`2.6` → agriculture). Note CL5 is "Climate, Energy and
-  Mobility" and CL6 is "Food, Bioeconomy, Agriculture..." — broader than the
-  plain domain names. `climate_policy_pct` carries the EU climate-expenditure
-  marker (0/40/100).
-- **Covariates**: budget (`ecMaxContribution`, `totalCost`), dates, funding
-  scheme, coordinator (name, country, activity type), consortium size.
-- **Version handling**: `version_rank` parsed from the title
-  (initial < interim < updated/v2 < final) and `is_latest` marking one DMP
-  per project.
+- **RQ1** — map sections to the HE DMP template schema by embedding
+  similarity (adherence scores); intra- vs. inter-domain similarity with
+  boilerplate/near-duplicate detection (MinHash) separated from semantic
+  similarity.
+- **RQ2** — TAPS-RM codebook (16 cells × indicator questions), human-coded
+  gold standard on a stratified sample, LLM-assisted annotation validated
+  against it, then full-corpus scoring.
+- **RQ3** — regression of TAPS coverage on the covariates already in
+  `corpus.csv`; PERMANOVA on embedding distances.
+- **RQ4** — FAIR/open-science commitment score extracted independently of
+  TAPS scoring; optional validation against actual deposits via the OpenAIRE
+  Graph (project IDs are already in the corpus).
 
 ## Notes
 
-- CORDIS dumps are refreshed monthly; rerun `cordis-dmp metadata && cordis-dmp filter`
-  to pick up new deliverables, then `cordis-dmp download` fetches only the new ones.
-- Be polite to the EC portal: the defaults (4 workers, 0.5 s delay) keep the
-  request rate modest. The full corpus takes a few hours.
+- CORDIS dumps refresh monthly; rerun stages 1–3 to pick up new deliverables —
+  stage 4 then downloads only the new ones.
+- Be polite to the EC portal: defaults (4 workers, 0.5 s delay) keep the
+  request rate modest.
 - Data source: © European Union, CORDIS, reusable under
   [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
