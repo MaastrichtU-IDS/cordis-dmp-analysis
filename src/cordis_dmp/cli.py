@@ -27,6 +27,12 @@ def main(argv=None) -> None:
     p_enrich = sub.add_parser("enrich", help="join project metadata: domains, coordinator, budget -> data/corpus.csv")
     p_enrich.add_argument("--refresh", action="store_true", help="re-download the project dumps even if cached")
 
+    p_tpl = sub.add_parser("template", help="locate HE template question answers in one extracted DMP")
+    p_tpl.add_argument("doc", help="deliverable id (stem of a data/text/*.json file)")
+    p_tpl.add_argument("--threshold", type=float, default=0.55, help="match threshold (default: 0.55)")
+    p_tpl.add_argument("--max-chars", type=int, default=500, help="truncate answers (0 = full text)")
+    p_tpl.add_argument("--json", action="store_true", help="emit JSON instead of a readable report")
+
     p_dl = sub.add_parser("download", help="download the DMP documents (PDFs)")
     p_ex = sub.add_parser("extract", help="extract section-structured text from PDFs -> data/text/*.json")
     p_all = sub.add_parser("all", help="metadata + filter + download in one go")
@@ -61,6 +67,16 @@ def main(argv=None) -> None:
     if args.command == "extract":
         from . import extract as ex
         ex.extract_all(args.data_dir, domains=args.domains, latest_only=args.latest_only, limit=args.limit)
+    if args.command == "template":
+        import json as _json
+
+        from . import template as tpl
+        doc_json = args.data_dir / "text" / (args.doc + ".json")
+        if args.json:
+            print(_json.dumps(tpl.match_document(doc_json, threshold=args.threshold),
+                              ensure_ascii=False, indent=1))
+        else:
+            print(tpl.report(doc_json, threshold=args.threshold, max_chars=args.max_chars))
 
 
 if __name__ == "__main__":
