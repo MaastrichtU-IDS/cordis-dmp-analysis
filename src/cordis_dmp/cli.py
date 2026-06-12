@@ -27,8 +27,11 @@ def main(argv=None) -> None:
     p_enrich = sub.add_parser("enrich", help="join project metadata: domains, coordinator, budget -> data/corpus.csv")
     p_enrich.add_argument("--refresh", action="store_true", help="re-download the project dumps even if cached")
 
-    p_tpl = sub.add_parser("template", help="locate HE template question answers in one extracted DMP")
-    p_tpl.add_argument("doc", help="deliverable id (stem of a data/text/*.json file)")
+    p_tpl = sub.add_parser("template", help="locate HE template question answers in extracted DMPs")
+    p_tpl.add_argument("doc", nargs="?", default=None,
+                       help="deliverable id (stem of a data/text/*.json file); omit with --all")
+    p_tpl.add_argument("--all", action="store_true",
+                       help="run over every extracted DMP -> data/template_{matches,adherence}.csv")
     p_tpl.add_argument("--threshold", type=float, default=0.55, help="match threshold (default: 0.55)")
     p_tpl.add_argument("--max-chars", type=int, default=500, help="truncate answers (0 = full text)")
     p_tpl.add_argument("--json", action="store_true", help="emit JSON instead of a readable report")
@@ -71,6 +74,12 @@ def main(argv=None) -> None:
         import json as _json
 
         from . import template as tpl
+        if args.all != (args.doc is None):
+            parser.error("template needs either a document id or --all")
+        if args.all:
+            out = tpl.match_corpus(args.data_dir, threshold=args.threshold)
+            print(f"wrote {out} and {args.data_dir / 'template_matches.csv'}")
+            return
         doc_json = args.data_dir / "text" / (args.doc + ".json")
         if args.json:
             print(_json.dumps(tpl.match_document(doc_json, threshold=args.threshold),

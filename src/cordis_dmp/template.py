@@ -155,6 +155,39 @@ def match_document(doc_json: Path, threshold: float = 0.55) -> list:
     return results
 
 
+def match_corpus(data_dir: Path, threshold: float = 0.55) -> Path:
+    """Run template matching over every extracted DMP.
+
+    Writes data/template_matches.csv (one row per document x question) and
+    data/template_adherence.csv (one row per document with the fraction of
+    template questions answered).
+    """
+    import csv
+
+    text_dir = data_dir / "text"
+    docs = sorted(text_dir.glob("*.json"))
+    matches_path = data_dir / "template_matches.csv"
+    adherence_path = data_dir / "template_adherence.csv"
+    with open(matches_path, "w", newline="", encoding="utf-8") as mf, \
+         open(adherence_path, "w", newline="", encoding="utf-8") as af:
+        mw = csv.writer(mf)
+        mw.writerow(["doc", "question_id", "part", "score", "matched", "answer_chars"])
+        aw = csv.writer(af)
+        aw.writerow(["doc", "n_matched", "n_questions", "adherence"])
+        for doc_json in docs:
+            results = match_document(doc_json, threshold=threshold)
+            n_matched = 0
+            for r in results:
+                matched = r["answer"] is not None
+                n_matched += matched
+                mw.writerow([doc_json.stem, r["id"], r["part"], r["score"] or "",
+                             "true" if matched else "false",
+                             len(r["answer"]) if matched else 0])
+            aw.writerow([doc_json.stem, n_matched, len(results),
+                         round(n_matched / len(results), 3)])
+    return adherence_path
+
+
 def report(doc_json: Path, threshold: float = 0.55, max_chars: int = 500) -> str:
     """Human-readable question -> answer report for one DMP."""
     lines, part_seen = [], None
