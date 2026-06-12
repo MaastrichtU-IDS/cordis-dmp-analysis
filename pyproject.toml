@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cordis-dmp-analysis"
+version = "0.1.0"
+description = "Download and analyse Data Management Plans (DMPs) from the EU CORDIS database (H2020 + Horizon Europe)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Remzi Celebi" }]
+dependencies = ["requests>=2.28"]
+
+[project.scripts]
+cordis-dmp = "cordis_dmp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
