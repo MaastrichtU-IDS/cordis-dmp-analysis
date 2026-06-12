@@ -25,6 +25,7 @@ against the live CORDIS/EC services:
 | 3. Corpus enrichment | `cordis-dmp enrich` | `data/corpus.csv` | done — domain labels, covariates, version handling (details below) |
 | 4. Document download | `cordis-dmp download` | `data/pdfs/<programme>/*.pdf` | done — resumable, parallel, rate-limited |
 | 5. Text extraction | `cordis-dmp extract` | `data/text/*.json` | done — section-structured text per DMP |
+| 6. Template matching | `cordis-dmp template <doc>` | per-question answers (report/JSON) | done — lexical baseline, 35/39 questions on a template-faithful DMP |
 
 ### Stage details and design decisions
 
@@ -116,10 +117,52 @@ data/
     └── 101210495_1_DELIVHORIZON.json   # {sections: [{heading, page, text}], needs_ocr, ...}
 ```
 
+## HE template question matching (`cordis-dmp template`)
+
+`src/cordis_dmp/template.py` encodes the official Horizon Europe DMP template
+as 39 canonical questions across its 7 parts (Data Summary; FAIR —
+Findable/Accessible/Interoperable/Reusable; Other research outputs;
+Allocation of resources; Data security; Ethics; Other issues) and locates the
+answer text for each question in one extracted DMP:
+
+```bash
+cordis-dmp template 101210495_1_DELIVHORIZON          # readable report
+cordis-dmp template 101210495_1_DELIVHORIZON --json   # machine-readable
+```
+
+Matching is lexical (difflib) with two PDF-specific fixes: text-less heading
+fragments are folded into the next section's heading (multi-line headings),
+and similarity is computed against the same-length *prefix* of the question
+(truncated headings). This is the verbatim baseline for RQ1; freely
+restructured DMPs need the planned embedding-based matcher.
+
+**Example** — OPALS (project 101210495), a template-faithful DMP:
+**35/39 questions matched** (full report:
+[`docs/example-template-matching-OPALS.md`](docs/example-template-matching-OPALS.md)).
+
+| Q | Question (abridged) | Answer found (abridged) |
+|---|---|---|
+| DS-2 | What types and formats of data will be generated or re-used? | Algorithms, code (Python), ML models, performance measurements… |
+| DS-4 | What is the expected size of the data? | Code < 500 MB, ML models and training data < 30 GB, measurements < 5 GB |
+| F-1 | Will data be identified by a persistent identifier? | Public repositories (GitHub, arXiv/Zenodo) attributing persistent identifiers |
+| F-3 | Will search keywords be provided in the metadata? | "Yes." |
+| R-2 | Will data be freely available under standard licenses? | Public data and outcomes under standard licenses (e.g. MIT) |
+| RES-2 | Who will be responsible for data management? | "The fellow and the host organization at large." |
+| OTH-1 | Other national/funder data management procedures? | "No other data management procedures … are planned to be used." |
+
+The 4 misses are instructive for the analysis design: one answer was merged
+into the preceding section (question line not typeset as a heading), two
+headings were fragmented beyond lexical similarity, and one section carries
+the part title instead of the question text. Realistic recall of the verbatim
+baseline on template-faithful documents is therefore ~90%. Answer brevity
+varies from a bare "Yes." to full paragraphs — the elaboration difference the
+ordinal coverage scale in the TAPS annotation stage is meant to capture.
+
 ## Next steps (analysis stages, not yet implemented)
 
-- **RQ1** — map sections to the HE DMP template schema by embedding
-  similarity (adherence scores); intra- vs. inter-domain similarity with
+- **RQ1** — extend the lexical template matcher with embedding similarity to
+  handle freely restructured DMPs (adherence scores corpus-wide); intra- vs.
+  inter-domain similarity with
   boilerplate/near-duplicate detection (MinHash) separated from semantic
   similarity.
 - **RQ2** — TAPS-RM codebook (16 cells × indicator questions), human-coded
