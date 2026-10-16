@@ -5,7 +5,7 @@ project deliverables in the EU [CORDIS](https://cordis.europa.eu/) database
 (Horizon 2020 + Horizon Europe), as the corpus for a study of **responsible
 data management** based on the **TAPS responsibility matrix** (Transparency,
 Accountability, Privacy & Confidentiality, Social Values × Actors, Objects,
-Processes, Impacts).
+Processes, Impacts), DOI: [10.1080/23299460.2024.2414530](https://doi.org/10.1080/23299460.2024.2414530).
 
 The study targets EU-funded projects in **health, agriculture and climate**
 and asks: how well do DMPs adhere to the recommended templates (RQ1), how
